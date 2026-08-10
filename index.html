@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panini IPTC Metadata Tool — 100% locale</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Panini IPTC Metadata Tool <span class="ver">100% locale nel browser</span></h1>
+</header>
+
+<main>
+  <section class="panel">
+    <p id="engineStatus" class="status">Caricamento librerie locali...</p>
+    <p class="hint">Nessuna immagine lascia questo computer: OCR e scrittura metadati avvengono
+      interamente nel browser. Serve Chrome o Edge su desktop (macOS/Windows).</p>
+    <button id="pickFolderBtn" disabled>Seleziona cartella immagini</button>
+    <p id="folderStatus" class="status">Nessuna cartella selezionata</p>
+  </section>
+
+  <section class="panel" id="areaPanel" style="display:none">
+    <h2>1. Seleziona area/e OCR</h2>
+    <div class="canvasWrap">
+      <canvas id="imgCanvas" width="700" height="500"></canvas>
+    </div>
+    <div class="navRow">
+      <button id="prevBtn">&lt; Precedente</button>
+      <span id="navLabel">0 / 0</span>
+      <button id="nextBtn">Successiva &gt;</button>
+      <button id="resetAreasBtn">Reset aree</button>
+    </div>
+    <div class="row">
+      <label>Numero aree:
+        <select id="numAreas">
+          <option value="1">1 area (nome su una riga)</option>
+          <option value="2">2 aree (nome + cognome separati)</option>
+        </select>
+      </label>
+      <label>Orientamento testo:
+        <select id="orientation">
+          <option value="orizzontale_sx_dx">Orizzontale sinistra-destra</option>
+          <option value="orizzontale_dx_sx">Orizzontale destra-sinistra</option>
+          <option value="verticale_alto_basso">Verticale alto-basso</option>
+          <option value="verticale_basso_alto">Verticale basso-alto</option>
+        </select>
+      </label>
+    </div>
+    <p id="areaStatus" class="status">Nessuna area selezionata</p>
+  </section>
+
+  <section class="panel" id="step1Panel" style="display:none">
+    <h2>2. Step 1 - OCR + scrittura IPTC (modifica i file sul posto)</h2>
+    <div class="row">
+      <label>Author (Writer-Editor): <input type="text" id="authorInput" value="PAN"></label>
+      <label>Object Name (titolo): <input type="text" id="objectNameInput" value=""></label>
+    </div>
+    <button id="runStep1Btn" class="primary">ESEGUI STEP 1 - TUTTA LA CARTELLA</button>
+    <div class="progressWrap"><div id="step1Progress" class="progressBar"></div></div>
+    <pre id="step1Log" class="log"></pre>
+  </section>
+
+  <section class="panel" id="step2Panel" style="display:none">
+    <h2>3. Step 2 - Match con checklist Excel</h2>
+
+    <div class="subpanel">
+      <h3>Genera checklist da link LastSticker</h3>
+      <div class="row">
+        <input type="text" id="laststickerUrl" placeholder="https://www.laststicker.com/it/cards/..." style="flex:1; min-width:320px;">
+        <button id="scrapeBtn">Scarica checklist</button>
+      </div>
+      <p class="hint">Unica funzione che comunica con l'esterno (LastSticker, ed eventualmente un servizio-ponte
+        se il browser blocca la connessione diretta). Succede solo quando premi questo pulsante.</p>
+      <pre id="scrapeLog" class="log" style="display:none"></pre>
+      <a id="downloadChecklistLink" class="buttonLink" style="display:none" href="#">Scarica questa checklist come .xlsx</a>
+    </div>
+
+    <div class="subpanel">
+      <h3>Oppure carica un Excel già pronto</h3>
+      <input type="file" id="excelInput" accept=".xlsx,.xls">
+    </div>
+
+    <p id="excelStatus" class="status">Nessun Excel caricato</p>
+    <button id="runStep2Btn" class="primary" disabled>ESEGUI STEP 2 - TUTTI I FILE</button>
+    <div class="progressWrap"><div id="step2Progress" class="progressBar"></div></div>
+    <pre id="step2Log" class="log"></pre>
+    <a id="reportLink" class="buttonLink" style="display:none" href="#">Scarica report NO MATCH</a>
+    <a id="duplicatesLink" class="buttonLink" style="display:none" href="#">Scarica report DUPLICATI</a>
+  </section>
+</main>
+
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="vendor/xlsx/xlsx.full.min.js"></script>
+<script src="js/matcher.js"></script>
+<script src="js/textutils.js"></script>
+<script type="module">
+  import { default as createExiv2Module } from './vendor/exiv2/exiv2.esm.js';
+  window.createExiv2Module = createExiv2Module;
+  const s = document.createElement('script');
+  s.src = 'app.js';
+  document.body.appendChild(s);
+</script>
+</body>
+</html>
