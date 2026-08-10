@@ -98,7 +98,7 @@
   import { default as createExiv2Module } from './vendor/exiv2/exiv2.esm.js';
   window.createExiv2Module = createExiv2Module;
   const s = document.createElement('script');
-  s.src = 'app.js';
+  s.src = 'app.js?v=' + Date.now();
   document.body.appendChild(s);
 </script>
 </body>
