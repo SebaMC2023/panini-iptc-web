@@ -232,10 +232,15 @@ function cropPreprocessed(bitmap, area, orientation) {
     outCanvas = document.createElement("canvas");
     outCanvas.width = h; outCanvas.height = w;
     const oc = outCanvas.getContext("2d");
+    // NOTA: Canvas ruota in senso ORARIO per angoli positivi, mentre PIL (usato
+    // nello script Python) ruota in senso ANTIORARIO. Le due rotazioni qui sotto
+    // sono quindi invertite rispetto a come sembrerebbero "naturali" copiando gli
+    // stessi angoli da PIL: verificato pixel-per-pixel contro l'output PIL di
+    // riferimento (gia' in produzione nel tool desktop) per confermare il verso corretto.
     if (orientation === "verticale_alto_basso") {
-      oc.translate(h, 0); oc.rotate(Math.PI / 2);
-    } else {
       oc.translate(0, w); oc.rotate(-Math.PI / 2);
+    } else {
+      oc.translate(h, 0); oc.rotate(Math.PI / 2);
     }
     oc.drawImage(off, 0, 0);
   }
