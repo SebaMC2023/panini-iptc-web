@@ -330,7 +330,14 @@ document.getElementById("runStep1Btn").addEventListener("click", async () => {
 // ---------------------------------------------------------------------
 // Genera checklist da link LastSticker (unica funzione che tocca la rete)
 // ---------------------------------------------------------------------
-const CORS_PROXY = "https://api.allorigins.win/raw?url=";
+// Piu' servizi-ponte in fila: se uno e' lento/non risponde, si prova il
+// successivo prima di arrendersi. Sono servizi gratuiti di terzi, quindi non
+// sempre affidabili al 100% (possono essere lenti o temporaneamente giu').
+const CORS_PROXIES = [
+  (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
+  (url) => "https://corsproxy.io/?url=" + encodeURIComponent(url),
+  (url) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url),
+];
 // Le righe spazzatura (menu di navigazione, blocchi di login, ecc.) che a volte
 // finiscono nella tabella scaricata sono blob di testo lunghissimi - centinaia o
 // migliaia di caratteri - mentre un titolo o un nome di sezione reali sono sempre
@@ -339,18 +346,37 @@ const CORS_PROXY = "https://api.allorigins.win/raw?url=";
 // piuttosto che su un conteggio di righe indovinato.
 const LUNGHEZZA_MASSIMA_PLAUSIBILE = 80;
 
-async function fetchHtml(url) {
+async function fetchWithTimeout(url, ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchHtml(url, onAttempt) {
   // 1. Prova diretto (funziona solo se il sito espone CORS, raro sui siti normali)
   try {
-    const res = await fetch(url, { mode: "cors" });
-    if (res.ok) return { html: await res.text(), viaProxy: false };
+    const res = await fetchWithTimeout(url, 12000);
+    if (res.ok) return { html: await res.text(), viaProxy: null };
   } catch (e) {
-    // CORS bloccato o rete non raggiungibile: proviamo il proxy
+    // CORS bloccato, rete non raggiungibile o timeout: proviamo i servizi-ponte
   }
-  // 2. Fallback: servizio-ponte pubblico che aggiunge le intestazioni CORS mancanti
-  const res2 = await fetch(CORS_PROXY + encodeURIComponent(url));
-  if (!res2.ok) throw new Error(`Impossibile scaricare la pagina (HTTP ${res2.status})`);
-  return { html: await res2.text(), viaProxy: true };
+  // 2. Fallback in sequenza sui servizi-ponte pubblici
+  let lastError = null;
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    try {
+      if (onAttempt) onAttempt(i + 1, CORS_PROXIES.length);
+      const res = await fetchWithTimeout(CORS_PROXIES[i](url), 15000);
+      if (res.ok) return { html: await res.text(), viaProxy: i + 1 };
+      lastError = new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      lastError = e.name === "AbortError" ? new Error("timeout") : e;
+    }
+  }
+  throw new Error(`Tutti i servizi-ponte hanno fallito (ultimo errore: ${lastError.message})`);
 }
 
 function parseLastStickerChecklist(html) {
@@ -391,8 +417,10 @@ document.getElementById("scrapeBtn").addEventListener("click", async () => {
 
   try {
     log("scrapeLog", `Scaricando: ${url}`);
-    const { html, viaProxy } = await fetchHtml(url);
-    if (viaProxy) log("scrapeLog", "Connessione diretta bloccata dal browser (CORS): uso il servizio-ponte api.allorigins.win.");
+    const { html, viaProxy } = await fetchHtml(url, (n, total) => {
+      log("scrapeLog", `Connessione diretta bloccata dal browser (CORS): provo il servizio-ponte ${n}/${total}...`);
+    });
+    if (viaProxy) log("scrapeLog", `Riuscito tramite il servizio-ponte n. ${viaProxy}.`);
     else log("scrapeLog", "Connessione diretta riuscita.");
 
     const { records, scartate } = parseLastStickerChecklist(html);
@@ -451,8 +479,13 @@ document.getElementById("excelInput").addEventListener("change", async (e) => {
     const team = row[1] !== undefined ? String(row[1]).trim() : "";
     const stkn = row[2] !== undefined ? String(row[2]).trim() : "";
     let numero = row[3] !== undefined ? String(row[3]).trim() : "";
-    const asInt = parseInt(parseFloat(numero), 10);
-    if (!Number.isNaN(asInt) && String(asInt) === String(parseFloat(numero))) numero = String(asInt);
+    // Normalizza "12.0" -> "12" (Excel spesso salva i numeri come float).
+    // Solo se l'INTERA stringa e' un numero puro: mai troncare codici come
+    // "36x" (la "x" indica una variante "update" e va preservata).
+    if (/^-?\d+(\.\d+)?$/.test(numero)) {
+      const asInt = parseInt(parseFloat(numero), 10);
+      if (String(asInt) === numero.replace(/\.0+$/, "")) numero = String(asInt);
+    }
     excelRecords.push({ name, team, stkn, numero });
   }
   document.getElementById("excelStatus").textContent = `Excel caricato: ${excelRecords.length} righe`;
