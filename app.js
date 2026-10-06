@@ -335,10 +335,17 @@ document.getElementById("runStep1Btn").addEventListener("click", async () => {
 // ---------------------------------------------------------------------
 // Genera checklist da link LastSticker (unica funzione che tocca la rete)
 // ---------------------------------------------------------------------
-// Piu' servizi-ponte in fila: se uno e' lento/non risponde, si prova il
-// successivo prima di arrendersi. Sono servizi gratuiti di terzi, quindi non
-// sempre affidabili al 100% (possono essere lenti o temporaneamente giu').
+// PROXY PERSONALE (consigliato): incolla qui l'indirizzo del tuo Cloudflare
+// Worker (vedi cloudflare-worker.js nel repo), ad esempio
+//   "https://laststicker-proxy.tuonome.workers.dev/?url="
+// Se resta vuoto si usano solo i servizi-ponte pubblici qui sotto.
+const MY_PROXY = "";
+
+// Servizi-ponte pubblici di riserva. Sono gratuiti e di terzi, quindi non
+// sempre affidabili (lenti, saturi o temporaneamente giu'): vengono provati
+// TUTTI IN PARALLELO e vince il primo che risponde con una pagina valida.
 const CORS_PROXIES = [
+  ...(MY_PROXY ? [(url) => MY_PROXY + encodeURIComponent(url)] : []),
   (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
   (url) => "https://corsproxy.io/?url=" + encodeURIComponent(url),
   (url) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url),
@@ -361,27 +368,53 @@ async function fetchWithTimeout(url, ms) {
   }
 }
 
+// LastSticker risponde solo in https: un link http:// costringe i proxy a
+// seguire un redirect, e alcuni non lo fanno (finiscono in timeout).
+function normalizeLastStickerUrl(url) {
+  let u = url.trim();
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u.replace(/^http:\/\//i, "https://");
+}
+
+// Un proxy puo' rispondere 200 con una sua pagina d'errore o di blocco:
+// accettiamo solo HTML che contiene davvero una tabella.
+function looksLikeChecklist(html) {
+  return typeof html === "string" && /<table[\s>]/i.test(html);
+}
+
 async function fetchHtml(url, onAttempt) {
   // 1. Prova diretto (funziona solo se il sito espone CORS, raro sui siti normali)
   try {
-    const res = await fetchWithTimeout(url, 12000);
-    if (res.ok) return { html: await res.text(), viaProxy: null };
+    const res = await fetchWithTimeout(url, 8000);
+    if (res.ok) {
+      const html = await res.text();
+      if (looksLikeChecklist(html)) return { html, viaProxy: null };
+    }
   } catch (e) {
     // CORS bloccato, rete non raggiungibile o timeout: proviamo i servizi-ponte
   }
-  // 2. Fallback in sequenza sui servizi-ponte pubblici
-  let lastError = null;
-  for (let i = 0; i < CORS_PROXIES.length; i++) {
+  // 2. Tutti i servizi-ponte in parallelo: vince il primo valido.
+  //    Attesa massima ~20 s invece della somma dei timeout di ciascuno.
+  if (onAttempt) onAttempt(CORS_PROXIES.length);
+  const errors = new Array(CORS_PROXIES.length).fill("non provato");
+  const attempts = CORS_PROXIES.map(async (makeUrl, i) => {
     try {
-      if (onAttempt) onAttempt(i + 1, CORS_PROXIES.length);
-      const res = await fetchWithTimeout(CORS_PROXIES[i](url), 15000);
-      if (res.ok) return { html: await res.text(), viaProxy: i + 1 };
-      lastError = new Error(`HTTP ${res.status}`);
+      const res = await fetchWithTimeout(makeUrl(url), 20000);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const html = await res.text();
+      if (!looksLikeChecklist(html)) throw new Error("risposta senza tabella");
+      return { html, viaProxy: i + 1 };
     } catch (e) {
-      lastError = e.name === "AbortError" ? new Error("timeout") : e;
+      errors[i] = e.name === "AbortError" ? "timeout" : (e.message || String(e));
+      throw e;
     }
+  });
+  try {
+    return await Promise.any(attempts);
+  } catch (e) {
+    const dettaglio = errors.map((m, i) => `${i + 1}: ${m}`).join(", ");
+    throw new Error(`Tutti i servizi-ponte hanno fallito (${dettaglio})`);
   }
-  throw new Error(`Tutti i servizi-ponte hanno fallito (ultimo errore: ${lastError.message})`);
 }
 
 function parseLastStickerChecklist(html) {
@@ -411,23 +444,8 @@ function parseLastStickerChecklist(html) {
   return { records: data, scartate };
 }
 
-document.getElementById("scrapeBtn").addEventListener("click", async () => {
-  const url = document.getElementById("laststickerUrl").value.trim();
-  if (!url) { alert("Incolla prima il link della pagina LastSticker."); return; }
-  const btn = document.getElementById("scrapeBtn");
-  const logEl = document.getElementById("scrapeLog");
-  logEl.style.display = "block";
-  logEl.textContent = "";
-  btn.disabled = true;
-
-  try {
-    log("scrapeLog", `Scaricando: ${url}`);
-    const { html, viaProxy } = await fetchHtml(url, (n, total) => {
-      log("scrapeLog", `Connessione diretta bloccata dal browser (CORS): provo il servizio-ponte ${n}/${total}...`);
-    });
-    if (viaProxy) log("scrapeLog", `Riuscito tramite il servizio-ponte n. ${viaProxy}.`);
-    else log("scrapeLog", "Connessione diretta riuscita.");
-
+// Elabora l'HTML di una pagina checklist (scaricata o caricata da file)
+function processChecklistHtml(html) {
     const { records, scartate } = parseLastStickerChecklist(html);
     if (scartate.length) {
       log("scrapeLog", `Scartate ${scartate.length} righe con testo anomalo (probabile contenuto di pagina, non dati):`);
@@ -459,11 +477,52 @@ document.getElementById("scrapeBtn").addEventListener("click", async () => {
     a.href = dlUrl;
     a.download = "checklist.xlsx";
     a.style.display = "inline-block";
+}
+
+function resetScrapeLog() {
+  const logEl = document.getElementById("scrapeLog");
+  logEl.style.display = "block";
+  logEl.textContent = "";
+}
+
+document.getElementById("scrapeBtn").addEventListener("click", async () => {
+  const raw = document.getElementById("laststickerUrl").value.trim();
+  if (!raw) { alert("Incolla prima il link della pagina LastSticker."); return; }
+  const url = normalizeLastStickerUrl(raw);
+  const btn = document.getElementById("scrapeBtn");
+  resetScrapeLog();
+  btn.disabled = true;
+
+  try {
+    log("scrapeLog", `Scaricando: ${url}`);
+    const { html, viaProxy } = await fetchHtml(url, (total) => {
+      log("scrapeLog", `Connessione diretta bloccata dal browser (CORS): provo ${total} servizi-ponte in parallelo...`);
+    });
+    if (viaProxy) log("scrapeLog", `Riuscito tramite il servizio-ponte n. ${viaProxy}.`);
+    else log("scrapeLog", "Connessione diretta riuscita.");
+    processChecklistHtml(html);
   } catch (e) {
     log("scrapeLog", `ERRORE: ${e.message || e}`);
-    log("scrapeLog", "Se il problema persiste, usa lo script scrape_checklist.py da riga di comando come alternativa.");
+    log("scrapeLog", "\nAlternativa senza rete: apri il link nel browser, salva la pagina con Ctrl+S "
+      + "(Cmd+S su Mac) e caricala qui sotto con \"Carica pagina salvata\".");
   }
   btn.disabled = false;
+});
+
+// Import manuale: pagina LastSticker salvata dal browser (nessuna rete)
+document.getElementById("savedPageInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  resetScrapeLog();
+  try {
+    log("scrapeLog", `Lettura pagina salvata: ${file.name}`);
+    const html = await file.text();
+    if (!looksLikeChecklist(html)) throw new Error("il file non contiene una tabella checklist");
+    processChecklistHtml(html);
+  } catch (err) {
+    log("scrapeLog", `ERRORE: ${err.message || err}`);
+  }
+  e.target.value = "";
 });
 
 // ---------------------------------------------------------------------
