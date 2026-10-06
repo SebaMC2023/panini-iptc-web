@@ -80,6 +80,7 @@ document.getElementById("pickFolderBtn").addEventListener("click", async () => {
 
   if (fileHandles.length > 0) {
     currentIndex = 0;
+    document.getElementById("copyrightPanel").style.display = "block";
     document.getElementById("areaPanel").style.display = "block";
     document.getElementById("step1Panel").style.display = "block";
     document.getElementById("step2Panel").style.display = "block";
@@ -262,6 +263,7 @@ async function writeStep1Metadata(u8, name, author, objectName) {
   u8 = exiv2.writeString(u8, "Iptc.Application2.Writer", author);
   u8 = exiv2.writeString(u8, "Iptc.Application2.ObjectName", objectName);
   u8 = exiv2.writeString(u8, "Xmp.dc.description", name);
+  if (copyrightAutoEnabled()) u8 = writeCopyright(u8);
   return u8;
 }
 
@@ -269,8 +271,64 @@ async function writeStep2Metadata(u8, description) {
   u8 = exiv2.writeBytes(u8, "Iptc.Envelope.CharacterSet", CHARSET_UTF8);
   u8 = exiv2.writeString(u8, "Iptc.Application2.Caption", description);
   u8 = exiv2.writeString(u8, "Xmp.dc.description", description);
+  if (copyrightAutoEnabled()) u8 = writeCopyright(u8);
   return u8;
 }
+
+// ---------------------------------------------------------------------
+// Copyright: IPTC Copyright Notice + XMP dc:rights / xmpRights
+// ---------------------------------------------------------------------
+function copyrightValues() {
+  return {
+    notice: document.getElementById("copyrightNoticeInput").value.trim(),
+    terms: document.getElementById("usageTermsInput").value.trim(),
+  };
+}
+
+function copyrightAutoEnabled() {
+  return document.getElementById("copyrightAutoChk").checked;
+}
+
+function writeCopyright(u8) {
+  const { notice, terms } = copyrightValues();
+  if (notice) {
+    u8 = exiv2.writeBytes(u8, "Iptc.Envelope.CharacterSet", CHARSET_UTF8); // per il simbolo ©
+    u8 = exiv2.writeString(u8, "Iptc.Application2.Copyright", notice);     // Copyright Notice
+    u8 = exiv2.writeString(u8, "Xmp.dc.rights", notice);
+    u8 = exiv2.writeString(u8, "Xmp.xmpRights.Marked", "True");            // "Copyrighted"
+  }
+  if (terms) u8 = exiv2.writeString(u8, "Xmp.xmpRights.UsageTerms", terms); // Rights Usage Terms
+  return u8;
+}
+
+document.getElementById("runCopyrightBtn").addEventListener("click", async () => {
+  const { notice, terms } = copyrightValues();
+  if (!notice && !terms) { alert("Compila almeno uno dei due campi copyright."); return; }
+  const btn = document.getElementById("runCopyrightBtn");
+  const logEl = document.getElementById("copyrightLog");
+  btn.disabled = true;
+  logEl.style.display = "block";
+  logEl.textContent = "";
+  const total = fileHandles.length;
+  let ok = 0, errors = 0;
+  for (let i = 0; i < total; i++) {
+    const { handle, name } = fileHandles[i];
+    try {
+      const file = await handle.getFile();
+      let u8 = new Uint8Array(await file.arrayBuffer());
+      u8 = writeCopyright(u8);
+      await writeFileBack(handle, u8);
+      ok++;
+      log("copyrightLog", `[${i + 1}/${total}] OK: ${name}`);
+    } catch (e) {
+      errors++;
+      log("copyrightLog", `[${i + 1}/${total}] ERRORE: ${name} | ${e.message || e}`);
+    }
+    setProgress("copyrightProgress", Math.round(((i + 1) / total) * 100));
+  }
+  log("copyrightLog", `COMPLETATO Copyright: ${ok}/${total} OK, ${errors} errori`);
+  btn.disabled = false;
+});
 
 async function readCaption(u8) {
   const meta = exiv2.read(u8);
