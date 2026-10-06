@@ -24,10 +24,13 @@
     <h2>Copyright</h2>
     <div class="row">
       <label style="flex:1">Copyright Notice:
-        <input type="text" id="copyrightNoticeInput" value="© PANINI S.P.A. - ITALY">
+        <input type="text" id="copyrightNoticeInput" value="© Panini S.p.A. - ITALY">
       </label>
       <label style="flex:1">Rights Usage Terms:
         <input type="text" id="usageTermsInput" value="All rights reserved">
+      </label>
+      <label style="flex:1">Credit Line:
+        <input type="text" id="creditLineInput" value="Panini S.p.A.">
       </label>
     </div>
     <label class="hint" style="display:block; margin-bottom:10px;">
@@ -35,7 +38,7 @@
       Scrivi il copyright anche durante Step 1 e Step 2
     </label>
     <button id="runCopyrightBtn">APPLICA SOLO IL COPYRIGHT A TUTTA LA CARTELLA</button>
-    <p class="hint">Scrive solo i campi copyright: non tocca Description, Title né Author e non rifà l'OCR.
+    <p class="hint">Scrive solo copyright e credit line: non tocca Description, Title né Author e non rifà l'OCR.
       Utile per file già elaborati.</p>
     <div class="progressWrap"><div id="copyrightProgress" class="progressBar"></div></div>
     <pre id="copyrightLog" class="log" style="display:none"></pre>

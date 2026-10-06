@@ -282,6 +282,7 @@ function copyrightValues() {
   return {
     notice: document.getElementById("copyrightNoticeInput").value.trim(),
     terms: document.getElementById("usageTermsInput").value.trim(),
+    credit: document.getElementById("creditLineInput").value.trim(),
   };
 }
 
@@ -290,20 +291,24 @@ function copyrightAutoEnabled() {
 }
 
 function writeCopyright(u8) {
-  const { notice, terms } = copyrightValues();
+  const { notice, terms, credit } = copyrightValues();
+  if (notice || credit) u8 = exiv2.writeBytes(u8, "Iptc.Envelope.CharacterSet", CHARSET_UTF8);
   if (notice) {
-    u8 = exiv2.writeBytes(u8, "Iptc.Envelope.CharacterSet", CHARSET_UTF8); // per il simbolo ©
     u8 = exiv2.writeString(u8, "Iptc.Application2.Copyright", notice);     // Copyright Notice
     u8 = exiv2.writeString(u8, "Xmp.dc.rights", notice);
     u8 = exiv2.writeString(u8, "Xmp.xmpRights.Marked", "True");            // "Copyrighted"
   }
   if (terms) u8 = exiv2.writeString(u8, "Xmp.xmpRights.UsageTerms", terms); // Rights Usage Terms
+  if (credit) {
+    u8 = exiv2.writeString(u8, "Iptc.Application2.Credit", credit);         // Credit Line
+    u8 = exiv2.writeString(u8, "Xmp.photoshop.Credit", credit);
+  }
   return u8;
 }
 
 document.getElementById("runCopyrightBtn").addEventListener("click", async () => {
-  const { notice, terms } = copyrightValues();
-  if (!notice && !terms) { alert("Compila almeno uno dei due campi copyright."); return; }
+  const { notice, terms, credit } = copyrightValues();
+  if (!notice && !terms && !credit) { alert("Compila almeno uno dei campi copyright."); return; }
   const btn = document.getElementById("runCopyrightBtn");
   const logEl = document.getElementById("copyrightLog");
   btn.disabled = true;
